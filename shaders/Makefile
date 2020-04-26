@@ -31,6 +31,7 @@ INCLUDES=\
 OUT=\
 	$(SHADERS:%=$(TARGET_DIR)/gl3/%) \
 	$(SHADERS:%.glsl=$(TARGET_DIR)/metal/%.metal) \
+	$(SHADERS:%.glsl=$(TARGET_DIR)/spirv/%.spv) \
 	$(SHADERS:%.glsl=build/metal/%.spv) \
 	$(EMPTY)
 
@@ -59,11 +60,17 @@ build/metal/%.fs.spv:	%.fs.glsl $(INCLUDES)
 $(TARGET_DIR)/gl3/%.fs.glsl:	%.fs.glsl $(INCLUDES)
 	mkdir -p $(TARGET_DIR)/gl3 && echo $(GLSL_VERSION_HEADER) > $@ && echo $(HEADER) >> $@ && ( glslangValidator $(GLSLANGFLAGS) -S frag -E $< | sed $(GLSL_SED_ARGS) >> $@ ) || ( rm $@ && exit 1 )
 
+$(TARGET_DIR)/spirv/%.fs.spv:	%.fs.glsl $(INCLUDES)
+	mkdir -p $(TARGET_DIR)/spirv && glslangValidator $(GLSLANGFLAGS) -G$(GLSL_VERSION) -S frag -o $@ $<
+
 build/metal/%.vs.spv:	%.vs.glsl $(INCLUDES)
 	mkdir -p build/metal && glslangValidator $(GLSLANGFLAGS_METAL) -G$(GLSL_VERSION) -S vert -o $@ $<
 
 $(TARGET_DIR)/gl3/%.vs.glsl:	%.vs.glsl $(INCLUDES)
 	mkdir -p $(TARGET_DIR)/gl3 && echo $(GLSL_VERSION_HEADER) > $@ && echo $(HEADER) >> $@ && ( glslangValidator $(GLSLANGFLAGS) -S vert -E $< | sed $(GLSL_SED_ARGS) >> $@ ) || ( rm $@ && exit 1 )
+
+$(TARGET_DIR)/spirv/%.vs.spv:	%.vs.glsl $(INCLUDES)
+	mkdir -p $(TARGET_DIR)/spirv && glslangValidator $(GLSLANGFLAGS) -G$(GLSL_VERSION) -S vert -o $@ $<
 
 $(TARGET_DIR)/metal/%.metal:	build/metal/%.spv
 	mkdir -p $(TARGET_DIR)/metal && echo $(HEADER) > $@ && ( $(SPIRVCROSS) $(SPIRVCROSSFLAGS) $< | sed $(METAL_SED_ARGS) >> $@ ) || ( rm $@ && exit 1 )
