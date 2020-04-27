@@ -25,12 +25,14 @@ use winit::{
 };
 
 fn main() {
+    let window_size = Vector2I::new(640, 480);
+
     let event_loop = EventLoop::new();
     let mut builder = winit::window::WindowBuilder::new()
         .with_title("Minimal example")
         .with_inner_size(winit::dpi::LogicalSize {
-            width: 640,
-            height: 480,
+            width: window_size.x(),
+            height: window_size.y(),
         });
 
     // Open a window.
@@ -43,7 +45,7 @@ fn main() {
 
     // Create a Pathfinder renderer.
     let mut renderer = Renderer::new(
-        WebGpuDevice::new(window),
+        WebGpuDevice::new(window, window_size),
         &FilesystemResourceLoader::locate(),
         DestFramebuffer::full_window(window_size),
         RendererOptions {

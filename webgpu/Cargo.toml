@@ -9,6 +9,7 @@ log = "0.4.8"
 wgpu = { git = "https://github.com/gfx-rs/wgpu-rs/", version = "0.5" } # c0b09be
 futures = "0.3"
 raw-window-handle = "0.3"
+spirv-reflect = "0.2"
 
 [dependencies.image]
 version = "0.23"
