@@ -21,8 +21,8 @@ use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectI;
 use pathfinder_geometry::vector::{Vector2F, Vector2I, vec2i};
 use pathfinder_gpu::{BlendFactor, BlendState, BufferData, BufferTarget, BufferUploadMode, Device};
-use pathfinder_gpu::{Primitive, RenderOptions, RenderState, RenderTarget, UniformData};
-use pathfinder_gpu::{VertexAttrClass, VertexAttrDescriptor, VertexAttrType};
+use pathfinder_gpu::{Primitive, RenderOptions, RenderState, RenderTarget, TextureFormat};
+use pathfinder_gpu::{UniformData, VertexAttrClass, VertexAttrDescriptor, VertexAttrType};
 use pathfinder_resources::ResourceLoader;
 use pathfinder_simd::default::F32x4;
 use serde_json;
@@ -91,10 +91,15 @@ impl<D> UIPresenter<D> where D: Device {
         let solid_program = DebugSolidProgram::new(device, resources);
         let solid_vertex_array = DebugSolidVertexArray::new(device, &solid_program);
 
-        let font_texture = device.create_texture_from_png(resources, FONT_PNG_NAME);
-        let corner_fill_texture = device.create_texture_from_png(resources, CORNER_FILL_PNG_NAME);
+        let font_texture = device.create_texture_from_png(resources,
+                                                          FONT_PNG_NAME,
+                                                          TextureFormat::R8);
+        let corner_fill_texture = device.create_texture_from_png(resources,
+                                                                 CORNER_FILL_PNG_NAME,
+                                                                 TextureFormat::R8);
         let corner_outline_texture = device.create_texture_from_png(resources,
-                                                                    CORNER_OUTLINE_PNG_NAME);
+                                                                    CORNER_OUTLINE_PNG_NAME,
+                                                                    TextureFormat::R8);
 
         UIPresenter {
             event_queue: UIEventQueue::new(),
@@ -166,12 +171,10 @@ impl<D> UIPresenter<D> where D: Device {
                                          filled: bool) {
         device.allocate_buffer(&self.solid_vertex_array.vertex_buffer,
                                BufferData::Memory(vertex_data),
-                               BufferTarget::Vertex,
-                               BufferUploadMode::Dynamic);
+                               BufferTarget::Vertex);
         device.allocate_buffer(&self.solid_vertex_array.index_buffer,
                                BufferData::Memory(index_data),
-                               BufferTarget::Index,
-                               BufferUploadMode::Dynamic);
+                               BufferTarget::Index);
 
         let primitive = if filled { Primitive::Triangles } else { Primitive::Lines };
         device.draw_elements(index_data.len() as u32, &RenderState {
@@ -185,6 +188,7 @@ impl<D> UIPresenter<D> where D: Device {
                 (&self.solid_program.color_uniform, get_color_uniform(color)),
             ],
             textures: &[],
+            images: &[],
             viewport: RectI::new(Vector2I::default(), self.framebuffer_size),
             options: RenderOptions {
                 blend: Some(alpha_blend_state()),
@@ -398,24 +402,22 @@ impl<D> UIPresenter<D> where D: Device {
                                      color: ColorU) {
         device.allocate_buffer(&self.texture_vertex_array.vertex_buffer,
                                BufferData::Memory(vertex_data),
-                               BufferTarget::Vertex,
-                               BufferUploadMode::Dynamic);
+                               BufferTarget::Vertex);
         device.allocate_buffer(&self.texture_vertex_array.index_buffer,
                                BufferData::Memory(index_data),
-                               BufferTarget::Index,
-                               BufferUploadMode::Dynamic);
+                               BufferTarget::Index);
 
         device.draw_elements(index_data.len() as u32, &RenderState {
             target: &RenderTarget::Default,
             program: &self.texture_program.program,
             vertex_array: &self.texture_vertex_array.vertex_array,
             primitive: Primitive::Triangles,
-            textures: &[&texture],
+            textures: &[(&self.texture_program.texture, &texture)],
+            images: &[],
             uniforms: &[
                 (&self.texture_program.framebuffer_size_uniform,
                  UniformData::Vec2(self.framebuffer_size.0.to_f32x2())),
                 (&self.texture_program.color_uniform, get_color_uniform(color)),
-                (&self.texture_program.texture_uniform, UniformData::TextureUnit(0)),
                 (&self.texture_program.texture_size_uniform,
                  UniformData::Vec2(device.texture_size(&texture).0.to_f32x2()))
             ],
@@ -563,23 +565,23 @@ struct DebugTextureProgram<D> where D: Device {
     program: D::Program,
     framebuffer_size_uniform: D::Uniform,
     texture_size_uniform: D::Uniform,
-    texture_uniform: D::Uniform,
     color_uniform: D::Uniform,
+    texture: D::TextureParameter,
 }
 
 impl<D> DebugTextureProgram<D> where D: Device {
     fn new(device: &D, resources: &dyn ResourceLoader) -> DebugTextureProgram<D> {
-        let program = device.create_program(resources, "debug_texture");
+        let program = device.create_raster_program(resources, "debug_texture");
         let framebuffer_size_uniform = device.get_uniform(&program, "FramebufferSize");
         let texture_size_uniform = device.get_uniform(&program, "TextureSize");
-        let texture_uniform = device.get_uniform(&program, "Texture");
         let color_uniform = device.get_uniform(&program, "Color");
+        let texture = device.get_texture_parameter(&program, "Texture");
         DebugTextureProgram {
             program,
             framebuffer_size_uniform,
             texture_size_uniform,
-            texture_uniform,
             color_uniform,
+            texture,
         }
     }
 }
@@ -593,7 +595,8 @@ struct DebugTextureVertexArray<D> where D: Device {
 impl<D> DebugTextureVertexArray<D> where D: Device {
     fn new(device: &D, debug_texture_program: &DebugTextureProgram<D>)
            -> DebugTextureVertexArray<D> {
-        let (vertex_buffer, index_buffer) = (device.create_buffer(), device.create_buffer());
+        let vertex_buffer = device.create_buffer(BufferUploadMode::Dynamic);
+        let index_buffer = device.create_buffer(BufferUploadMode::Dynamic);
         let vertex_array = device.create_vertex_array();
 
         let position_attr = device.get_vertex_attr(&debug_texture_program.program, "Position")
@@ -634,7 +637,8 @@ struct DebugSolidVertexArray<D> where D: Device {
 
 impl<D> DebugSolidVertexArray<D> where D: Device {
     fn new(device: &D, debug_solid_program: &DebugSolidProgram<D>) -> DebugSolidVertexArray<D> {
-        let (vertex_buffer, index_buffer) = (device.create_buffer(), device.create_buffer());
+        let vertex_buffer = device.create_buffer(BufferUploadMode::Dynamic);
+        let index_buffer = device.create_buffer(BufferUploadMode::Dynamic);
         let vertex_array = device.create_vertex_array();
 
         let position_attr =
@@ -663,7 +667,7 @@ struct DebugSolidProgram<D> where D: Device {
 
 impl<D> DebugSolidProgram<D> where D: Device {
     fn new(device: &D, resources: &dyn ResourceLoader) -> DebugSolidProgram<D> {
-        let program = device.create_program(resources, "debug_solid");
+        let program = device.create_raster_program(resources, "debug_solid");
         let framebuffer_size_uniform = device.get_uniform(&program, "FramebufferSize");
         let color_uniform = device.get_uniform(&program, "Color");
         DebugSolidProgram { program, framebuffer_size_uniform, color_uniform }

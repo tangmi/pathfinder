@@ -19,7 +19,7 @@ use pathfinder_renderer::gpu::options::{DestFramebuffer, RendererOptions};
 use pathfinder_renderer::gpu::renderer::Renderer;
 use pathfinder_renderer::options::BuildOptions;
 use pathfinder_resources::ResourceLoader;
-use pathfinder_resources::fs::FilesystemResourceLoader;
+use pathfinder_resources::embedded::EmbeddedResourceLoader;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::video::GLProfile;
@@ -49,11 +49,14 @@ fn main() {
     window.gl_make_current(&gl_context).unwrap();
 
     // Create a Pathfinder renderer.
-    let resource_loader = FilesystemResourceLoader::locate();
+    let resource_loader = EmbeddedResourceLoader;
     let mut renderer = Renderer::new(GLDevice::new(GLVersion::GL3, 0),
                                      &resource_loader,
                                      DestFramebuffer::full_window(window_size),
-                                     RendererOptions { background_color: Some(ColorF::white()) });
+                                     RendererOptions {
+                                         background_color: Some(ColorF::white()),
+                                         ..RendererOptions::default()
+                                     });
 
     // Load a font.
     let font_data = Arc::new(resource_loader.slurp("fonts/Overpass-Regular.otf").unwrap());
