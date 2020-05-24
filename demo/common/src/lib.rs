@@ -116,13 +116,13 @@ pub struct DemoApp<W> where W: Window {
 }
 
 impl<W> DemoApp<W> where W: Window {
-    pub fn new(window: W, window_size: WindowSize, mut options: Options) -> DemoApp<W> {
+    pub fn new(window: W, window_size: WindowSize, options: Options) -> DemoApp<W> {
         let expire_message_event_id = window.create_user_event_id();
 
         let device;
         #[cfg(all(target_os = "macos", not(feature = "pf-gl")))]
-        {
-            device = DeviceImpl::new(window.metal_layer());
+        unsafe {
+            device = DeviceImpl::new(window.metal_device(), window.metal_io_surface());
         }
         #[cfg(any(not(target_os = "macos"), feature = "pf-gl"))]
         {
@@ -131,14 +131,14 @@ impl<W> DemoApp<W> where W: Window {
 
         let resources = window.resource_loader();
 
-        // Read command line options.
-        options.command_line_overrides();
-
         // Set up the executor.
         let executor = DemoExecutor::new(options.jobs);
 
         let mut ui_model = DemoUIModel::new(&options);
-        let render_options = RendererOptions { background_color: None };
+        let render_options = RendererOptions {
+            background_color: None,
+            no_compute: options.no_compute,
+        };
 
         let filter = build_filter(&ui_model);
 
@@ -461,7 +461,7 @@ impl<W> DemoApp<W> where W: Window {
     }
 
     fn process_mouse_position(&mut self, new_position: Vector2I) -> MousePosition {
-        let absolute = new_position * self.window_size.backing_scale_factor as i32;
+        let absolute = (new_position.to_f32() * self.window_size.backing_scale_factor).to_i32();
         let relative = absolute - self.last_mouse_position;
         self.last_mouse_position = absolute;
         MousePosition { absolute, relative }
@@ -624,6 +624,8 @@ pub struct Options {
     pub input_path: SVGPath,
     pub ui: UIVisibility,
     pub background_color: BackgroundColor,
+    pub high_performance_gpu: bool,
+    pub no_compute: bool,
     hidden_field_for_future_proofing: (),
 }
 
@@ -635,13 +637,15 @@ impl Default for Options {
             input_path: SVGPath::Default,
             ui: UIVisibility::All,
             background_color: BackgroundColor::Light,
+            high_performance_gpu: false,
+            no_compute: false,
             hidden_field_for_future_proofing: (),
         }
     }
 }
 
 impl Options {
-    fn command_line_overrides(&mut self) {
+    pub fn command_line_overrides(&mut self) {
         let matches = App::new("tile-svg")
             .arg(
                 Arg::with_name("jobs")
@@ -682,6 +686,18 @@ impl Options {
                     .help("The background color to use"),
             )
             .arg(
+                Arg::with_name("high-performance-gpu")
+                    .short("g")
+                    .long("high-performance-gpu")
+                    .help("Use the high-performance (discrete) GPU, if available")
+            )
+            .arg(
+                Arg::with_name("no-compute")
+                    .short("c")
+                    .long("no-compute")
+                    .help("Never use compute shaders")
+            )
+            .arg(
                 Arg::with_name("INPUT")
                     .help("Path to the SVG file to render")
                     .index(1),
@@ -712,6 +728,14 @@ impl Options {
                 "dark" => BackgroundColor::Dark,
                 _ => BackgroundColor::Transparent,
             };
+        }
+
+        if matches.is_present("high-performance-gpu") {
+            self.high_performance_gpu = true;
+        }
+
+        if matches.is_present("no-compute") {
+            self.no_compute = true;
         }
 
         if let Some(path) = matches.value_of("INPUT") {
