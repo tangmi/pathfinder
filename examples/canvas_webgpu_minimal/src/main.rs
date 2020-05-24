@@ -25,6 +25,9 @@ use winit::{
 };
 
 fn main() {
+    std::env::set_var("RUST_LOG", "gfx_backend_vulkan");
+    env_logger::init();
+
     let window_size = Vector2I::new(640, 480);
 
     let event_loop = EventLoop::new();

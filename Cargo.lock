@@ -324,6 +324,7 @@ dependencies = [
 name = "canvas_webgpu_minimal"
 version = "0.1.0"
 dependencies = [
+ "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "pathfinder_canvas 0.5.0",
  "pathfinder_color 0.5.0",
  "pathfinder_content 0.5.0",
