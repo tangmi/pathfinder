@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/tile.fs.glsl
 //
@@ -33,11 +33,7 @@
 
 #extension GL_GOOGLE_include_directive : enable
 
-precision highp float;
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
 
 #define EPSILON     0.00001
 
@@ -81,29 +77,36 @@ precision highp sampler2D;
 #define COMBINER_CTRL_COLOR_COMBINE_SHIFT       6
 #define COMBINER_CTRL_COMPOSITE_SHIFT           8
 
-uniform sampler2D uColorTexture0;
-uniform sampler2D uMaskTexture0;
-uniform sampler2D uDestTexture;
-uniform sampler2D uGammaLUT;
-uniform vec2 uColorTextureSize0;
-uniform vec2 uMaskTextureSize0;
-uniform vec4 uFilterParams0;
-uniform vec4 uFilterParams1;
-uniform vec4 uFilterParams2;
-uniform vec2 uFramebufferSize;
-uniform int uCtrl;
+layout(set = 0, binding = 0) uniform sampler uColorTexture0Sampler;
+layout(set = 1, binding = 0) uniform texture2D uColorTexture0;
+layout(set = 0, binding = 1) uniform sampler uMaskTexture0Sampler;
+layout(set = 1, binding = 1) uniform texture2D uMaskTexture0;
+layout(set = 0, binding = 2) uniform sampler uDestTextureSampler;
+layout(set = 1, binding = 2) uniform texture2D uDestTexture;
+layout(set = 0, binding = 3) uniform sampler uGammaLUTSampler;
+layout(set = 1, binding = 3) uniform texture2D uGammaLUT;
 
-in vec3 vMaskTexCoord0;
-in vec2 vColorTexCoord0;
-in vec4 vBaseColor;
-in float vTileCtrl;
+layout(set = 0, binding = 0) uniform Globals {
+    vec2 uColorTextureSize0;
+    vec2 uMaskTextureSize0;
+    vec4 uFilterParams0;
+    vec4 uFilterParams1;
+    vec4 uFilterParams2;
+    vec2 uFramebufferSize;
+    int uCtrl;
+};
 
-out vec4 oFragColor;
+layout(location = 0) in vec3 vMaskTexCoord0;
+layout(location = 1) in vec2 vColorTexCoord0;
+layout(location = 2) in vec4 vBaseColor;
+layout(location = 3) in float vTileCtrl;
+
+layout(location = 0) out vec4 oFragColor;
 
 // Color sampling
 
-vec4 sampleColor(sampler2D colorTexture, vec2 colorTexCoord) {
-    return texture(colorTexture, colorTexCoord);
+vec4 sampleColor(texture2D colorTexture, sampler colorTextureSampler, vec2 colorTexCoord) {
+    return texture(sampler2D(colorTexture, colorTextureSampler), colorTexCoord);
 }
 
 // Color combining
@@ -120,45 +123,46 @@ vec4 combineColor0(vec4 destColor, vec4 srcColor, int op) {
 
 // Text filter
 
-float filterTextSample1Tap(float offset, sampler2D colorTexture, vec2 colorTexCoord) {
-    return texture(colorTexture, colorTexCoord + vec2(offset, 0.0)).r;
+float filterTextSample1Tap(float offset, texture2D colorTexture, sampler colorTextureSampler, vec2 colorTexCoord) {
+    return texture(sampler2D(colorTexture, colorTextureSampler), colorTexCoord + vec2(offset, 0.0)).r;
 }
 
 // Samples 9 taps around the current pixel.
 void filterTextSample9Tap(out vec4 outAlphaLeft,
                           out float outAlphaCenter,
                           out vec4 outAlphaRight,
-                          sampler2D colorTexture,
+                          texture2D colorTexture,
+                          sampler colorTextureSampler,
                           vec2 colorTexCoord,
                           vec4 kernel,
                           float onePixel) {
     bool wide = kernel.x > 0.0;
     outAlphaLeft =
-        vec4(wide ? filterTextSample1Tap(-4.0 * onePixel, colorTexture, colorTexCoord) : 0.0,
-             filterTextSample1Tap(-3.0 * onePixel, colorTexture, colorTexCoord),
-             filterTextSample1Tap(-2.0 * onePixel, colorTexture, colorTexCoord),
-             filterTextSample1Tap(-1.0 * onePixel, colorTexture, colorTexCoord));
-    outAlphaCenter = filterTextSample1Tap(0.0, colorTexture, colorTexCoord);
+        vec4(wide ? filterTextSample1Tap(-4.0 * onePixel, colorTexture, colorTextureSampler, colorTexCoord) : 0.0,
+             filterTextSample1Tap(-3.0 * onePixel, colorTexture, colorTextureSampler, colorTexCoord),
+             filterTextSample1Tap(-2.0 * onePixel, colorTexture, colorTextureSampler, colorTexCoord),
+             filterTextSample1Tap(-1.0 * onePixel, colorTexture, colorTextureSampler, colorTexCoord));
+    outAlphaCenter = filterTextSample1Tap(0.0, colorTexture, colorTextureSampler, colorTexCoord);
     outAlphaRight =
-        vec4(filterTextSample1Tap(1.0 * onePixel, colorTexture, colorTexCoord),
-             filterTextSample1Tap(2.0 * onePixel, colorTexture, colorTexCoord),
-             filterTextSample1Tap(3.0 * onePixel, colorTexture, colorTexCoord),
-             wide ? filterTextSample1Tap(4.0 * onePixel, colorTexture, colorTexCoord) : 0.0);
+        vec4(filterTextSample1Tap(1.0 * onePixel, colorTexture, colorTextureSampler, colorTexCoord),
+             filterTextSample1Tap(2.0 * onePixel, colorTexture, colorTextureSampler, colorTexCoord),
+             filterTextSample1Tap(3.0 * onePixel, colorTexture, colorTextureSampler, colorTexCoord),
+             wide ? filterTextSample1Tap(4.0 * onePixel, colorTexture, colorTextureSampler, colorTexCoord) : 0.0);
 }
 
 float filterTextConvolve7Tap(vec4 alpha0, vec3 alpha1, vec4 kernel) {
     return dot(alpha0, kernel) + dot(alpha1, kernel.zyx);
 }
 
-float filterTextGammaCorrectChannel(float bgColor, float fgColor, sampler2D gammaLUT) {
-    return texture(gammaLUT, vec2(fgColor, 1.0 - bgColor)).r;
+float filterTextGammaCorrectChannel(float bgColor, float fgColor, texture2D gammaLUT, sampler gammaLUTSampler) {
+    return texture(sampler2D(gammaLUT, gammaLUTSampler), vec2(fgColor, 1.0 - bgColor)).r;
 }
 
 // `fgColor` is in linear space.
-vec3 filterTextGammaCorrect(vec3 bgColor, vec3 fgColor, sampler2D gammaLUT) {
-    return vec3(filterTextGammaCorrectChannel(bgColor.r, fgColor.r, gammaLUT),
-                filterTextGammaCorrectChannel(bgColor.g, fgColor.g, gammaLUT),
-                filterTextGammaCorrectChannel(bgColor.b, fgColor.b, gammaLUT));
+vec3 filterTextGammaCorrect(vec3 bgColor, vec3 fgColor, texture2D gammaLUT, sampler gammaLUTSampler) {
+    return vec3(filterTextGammaCorrectChannel(bgColor.r, fgColor.r, gammaLUT, gammaLUTSampler),
+                filterTextGammaCorrectChannel(bgColor.g, fgColor.g, gammaLUT, gammaLUTSampler),
+                filterTextGammaCorrectChannel(bgColor.b, fgColor.b, gammaLUT, gammaLUTSampler));
 }
 
 //                | x          y          z          w
@@ -167,8 +171,10 @@ vec3 filterTextGammaCorrect(vec3 bgColor, vec3 fgColor, sampler2D gammaLUT) {
 //  filterParams1 | bgColor.r  bgColor.g  bgColor.b  -
 //  filterParams2 | fgColor.r  fgColor.g  fgColor.b  gammaCorrectionEnabled
 vec4 filterText(vec2 colorTexCoord,
-                sampler2D colorTexture,
-                sampler2D gammaLUT,
+                texture2D colorTexture,
+                sampler colorTextureSampler,
+                texture2D gammaLUT,
+                sampler gammaLUTSampler,
                 vec2 colorTextureSize,
                 vec4 filterParams0,
                 vec4 filterParams1,
@@ -182,7 +188,7 @@ vec4 filterText(vec2 colorTexCoord,
     // Apply defringing if necessary.
     vec3 alpha;
     if (kernel.w == 0.0) {
-        alpha = texture(colorTexture, colorTexCoord).rrr;
+        alpha = texture(sampler2D(colorTexture, colorTextureSampler), colorTexCoord).rrr;
     } else {
         vec4 alphaLeft, alphaRight;
         float alphaCenter;
@@ -190,6 +196,7 @@ vec4 filterText(vec2 colorTexCoord,
                              alphaCenter,
                              alphaRight,
                              colorTexture,
+                             colorTextureSampler,
                              colorTexCoord,
                              kernel,
                              1.0 / colorTextureSize.x);
@@ -205,7 +212,7 @@ vec4 filterText(vec2 colorTexCoord,
 
     // Apply gamma correction if necessary.
     if (gammaCorrectionEnabled)
-        alpha = filterTextGammaCorrect(bgColor, alpha, gammaLUT);
+        alpha = filterTextGammaCorrect(bgColor, alpha, gammaLUT, gammaLUTSampler);
 
     // Finish.
     return vec4(mix(bgColor, fgColor, alpha), 1.0);
@@ -302,7 +309,8 @@ vec4 filterText(vec2 colorTexCoord,
 //  filterParams1 | radii.x     radii.y     uvOrigin.x      uvOrigin.y
 //  filterParams2 | -           -           -               -
 vec4 filterRadialGradient(vec2 colorTexCoord,
-                          sampler2D colorTexture,
+                          texture2D colorTexture,
+                          sampler colorTextureSampler,
                           vec2 colorTextureSize,
                           vec2 fragCoord,
                           vec2 framebufferSize,
@@ -325,7 +333,7 @@ vec4 filterRadialGradient(vec2 colorTexCoord,
         if (ts.x > ts.y)
             ts = ts.yx;
         float t = ts.x >= 0.0 ? ts.x : ts.y;
-        color = texture(colorTexture, uvOrigin + vec2(clamp(t, 0.0, 1.0), 0.0));
+        color = texture(sampler2D(colorTexture, colorTextureSampler), uvOrigin + vec2(clamp(t, 0.0, 1.0), 0.0));
     }
 
     return color;
@@ -337,7 +345,8 @@ vec4 filterRadialGradient(vec2 colorTexCoord,
 //  filterParams1 | gaussCoeff.x  gaussCoeff.y  gaussCoeff.z  -
 //  filterParams2 | -             -                 -             -
 vec4 filterBlur(vec2 colorTexCoord,
-                sampler2D colorTexture,
+                texture2D colorTexture,
+                sampler colorTextureSampler,
                 vec2 colorTextureSize,
                 vec4 filterParams0,
                 vec4 filterParams1) {
@@ -348,7 +357,7 @@ vec4 filterBlur(vec2 colorTexCoord,
 
     // Set up our incremental calculation.
     float gaussSum = gaussCoeff.x;
-    vec4 color = texture(colorTexture, colorTexCoord) * gaussCoeff.x;
+    vec4 color = texture(sampler2D(colorTexture, colorTextureSampler), colorTexCoord) * gaussCoeff.x;
     gaussCoeff.xy *= gaussCoeff.yz;
 
     // This is a common trick that lets us use the texture filtering hardware to evaluate two
@@ -365,8 +374,8 @@ vec4 filterBlur(vec2 colorTexCoord,
         gaussPartialSum += gaussCoeff.x;
 
         vec2 srcOffset = srcOffsetScale * (float(i) + gaussCoeff.x / gaussPartialSum);
-        color += (texture(colorTexture, colorTexCoord - srcOffset) +
-                  texture(colorTexture, colorTexCoord + srcOffset)) * gaussPartialSum;
+        color += (texture(sampler2D(colorTexture, colorTextureSampler), colorTexCoord - srcOffset) +
+                  texture(sampler2D(colorTexture, colorTextureSampler), colorTexCoord + srcOffset)) * gaussPartialSum;
 
         gaussSum += 2.0 * gaussPartialSum;
         gaussCoeff.xy *= gaussCoeff.yz;
@@ -376,13 +385,15 @@ vec4 filterBlur(vec2 colorTexCoord,
     return color / gaussSum;
 }
 
-vec4 filterNone(vec2 colorTexCoord, sampler2D colorTexture) {
-    return sampleColor(colorTexture, colorTexCoord);
+vec4 filterNone(vec2 colorTexCoord, texture2D colorTexture, sampler colorTextureSampler) {
+    return sampleColor(colorTexture, colorTextureSampler, colorTexCoord);
 }
 
 vec4 filterColor(vec2 colorTexCoord,
-                 sampler2D colorTexture,
-                 sampler2D gammaLUT,
+                 texture2D colorTexture,
+                 sampler colorTextureSampler,
+                 texture2D gammaLUT,
+                 sampler gammaLUTSampler,
                  vec2 colorTextureSize,
                  vec2 fragCoord,
                  vec2 framebufferSize,
@@ -394,6 +405,7 @@ vec4 filterColor(vec2 colorTexCoord,
     case COMBINER_CTRL_FILTER_RADIAL_GRADIENT:
         return filterRadialGradient(colorTexCoord,
                                     colorTexture,
+                                    colorTextureSampler,
                                     colorTextureSize,
                                     fragCoord,
                                     framebufferSize,
@@ -402,19 +414,22 @@ vec4 filterColor(vec2 colorTexCoord,
     case COMBINER_CTRL_FILTER_BLUR:
         return filterBlur(colorTexCoord,
                           colorTexture,
+                          colorTextureSampler,
                           colorTextureSize,
                           filterParams0,
                           filterParams1);
     case COMBINER_CTRL_FILTER_TEXT:
         return filterText(colorTexCoord,
                           colorTexture,
+                          colorTextureSampler,
                           gammaLUT,
+                          gammaLUTSampler,
                           colorTextureSize,
                           filterParams0,
                           filterParams1,
                           filterParams2);
     }
-    return filterNone(colorTexCoord, colorTexture);
+    return filterNone(colorTexCoord, colorTexture, colorTextureSampler);
 }
 
 // Compositing
@@ -525,7 +540,8 @@ vec3 compositeRGB(vec3 destColor, vec3 srcColor, int op) {
 }
 
 vec4 composite(vec4 srcColor,
-               sampler2D destTexture,
+               texture2D destTexture,
+               sampler destTextureSampler,
                vec2 destTextureSize,
                vec2 fragCoord,
                int op) {
@@ -534,7 +550,7 @@ vec4 composite(vec4 srcColor,
 
     // FIXME(pcwalton): What should the output alpha be here?
     vec2 destTexCoord = fragCoord / destTextureSize;
-    vec4 destColor = texture(destTexture, destTexCoord);
+    vec4 destColor = texture(sampler2D(destTexture, destTextureSampler), destTexCoord);
     vec3 blendedRGB = compositeRGB(destColor.rgb, srcColor.rgb, op);
     return vec4(srcColor.a * (1.0 - destColor.a) * srcColor.rgb +
                 srcColor.a * destColor.a * blendedRGB +
@@ -545,7 +561,8 @@ vec4 composite(vec4 srcColor,
 // Masks
 
 float sampleMask(float maskAlpha,
-                 sampler2D maskTexture,
+                 texture2D maskTexture,
+                 sampler maskTextureSampler,
                  vec2 maskTextureSize,
                  vec3 maskTexCoord,
                  int maskCtrl) {
@@ -553,7 +570,7 @@ float sampleMask(float maskAlpha,
         return maskAlpha;
 
     ivec2 maskTexCoordI = ivec2(floor(maskTexCoord.xy));
-    vec4 texel = texture(maskTexture, (vec2(maskTexCoordI / ivec2(1, 4)) + 0.5) / maskTextureSize);
+    vec4 texel = texture(sampler2D(maskTexture, maskTextureSampler), (vec2(maskTexCoordI / ivec2(1, 4)) + 0.5) / maskTextureSize);
     float coverage = texel[maskTexCoordI.y % 4] + maskTexCoord.z;
 
     if ((maskCtrl & TILE_CTRL_MASK_WINDING) != 0)
@@ -569,7 +586,7 @@ void calculateColor(int tileCtrl, int ctrl) {
     // Sample mask.
     int maskCtrl0 = (tileCtrl >> TILE_CTRL_MASK_0_SHIFT) & TILE_CTRL_MASK_MASK;
     float maskAlpha = 1.0;
-    maskAlpha = sampleMask(maskAlpha, uMaskTexture0, uMaskTextureSize0, vMaskTexCoord0, maskCtrl0);
+    maskAlpha = sampleMask(maskAlpha, uMaskTexture0, uMaskTexture0Sampler, uMaskTextureSize0, vMaskTexCoord0, maskCtrl0);
 
     // Sample color.
     vec4 color = vBaseColor;
@@ -579,7 +596,9 @@ void calculateColor(int tileCtrl, int ctrl) {
         int color0Filter = (ctrl >> COMBINER_CTRL_COLOR_FILTER_SHIFT) & COMBINER_CTRL_FILTER_MASK;
         vec4 color0 = filterColor(vColorTexCoord0,
                                   uColorTexture0,
+                                  uColorTexture0Sampler,
                                   uGammaLUT,
+                                  uGammaLUTSampler,
                                   uColorTextureSize0,
                                   gl_FragCoord.xy,
                                   uFramebufferSize,
@@ -595,7 +614,7 @@ void calculateColor(int tileCtrl, int ctrl) {
 
     // Apply composite.
     int compositeOp = (ctrl >> COMBINER_CTRL_COMPOSITE_SHIFT) & COMBINER_CTRL_COMPOSITE_MASK;
-    color = composite(color, uDestTexture, uFramebufferSize, gl_FragCoord.xy, compositeOp);
+    color = composite(color, uDestTexture, uDestTextureSampler, uFramebufferSize, gl_FragCoord.xy, compositeOp);
 
     // Premultiply alpha.
     color.rgb *= color.a;

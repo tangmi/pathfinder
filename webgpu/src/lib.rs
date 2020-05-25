@@ -1,7 +1,8 @@
 use pathfinder_geometry::{rect::RectI, vector::Vector2I};
 use pathfinder_gpu::{
-    BufferData, BufferTarget, BufferUploadMode, Device, RenderState, RenderTarget, ShaderKind,
-    TextureData, TextureDataRef, TextureFormat, TextureSamplingFlags, VertexAttrDescriptor,
+    BlendFactor, BlendOp, BufferData, BufferTarget, BufferUploadMode, DepthFunc, Device,
+    RenderState, RenderTarget, ShaderKind, TextureData, TextureDataRef, TextureFormat,
+    TextureSamplingFlags, VertexAttrDescriptor,
 };
 use pathfinder_resources::ResourceLoader;
 use std::cell::Cell;
@@ -20,6 +21,7 @@ pub struct WebGpuDevice {
     current_command_encoder: RefCell<wgpu::CommandEncoder>,
     command_buffers: RefCell<Vec<wgpu::CommandBuffer>>,
     main_depth_stencil_texture: wgpu::Texture,
+    main_depth_stencil_texture_view: wgpu::TextureView,
     samplers: Vec<wgpu::Sampler>,
     swap_chain: wgpu::SwapChain,
     swap_chain_output: wgpu::SwapChainOutput,
@@ -129,6 +131,7 @@ impl WebGpuDevice {
                 swap_chain,
                 swap_chain_output,
                 command_buffers: RefCell::new(Vec::new()),
+                main_depth_stencil_texture_view: main_depth_stencil_texture.create_default_view(),
                 main_depth_stencil_texture,
                 current_command_encoder: RefCell::new(initialization_command_encoder),
             }
@@ -162,12 +165,18 @@ impl WebGpuDevice {
 
 #[derive(Debug, Clone)]
 pub struct WebGpuBuffer {
-    /// Lazily initialized
-    inner: Rc<RefCell<Option<wgpu::Buffer>>>,
+    inner: LazilyInitialized<Rc<BufferStorage>>,
+}
+
+/// This exists because buffers are lazily initialized, but the size and buffer should be set at once.
+#[derive(Debug)]
+struct BufferStorage {
+    buffer: wgpu::Buffer,
+    size: usize,
 }
 
 #[derive(Debug)]
-pub struct WebGpuFramebuffer {}
+pub struct WebGpuFramebuffer(WebGpuTexture);
 
 #[derive(Debug)]
 pub struct WebGpuProgram {
@@ -180,6 +189,7 @@ pub struct WebGpuProgram {
 pub struct WebGpuShader {
     name: Option<String>,
 
+    // bindings: (),
     shader_vertex_attributes: Option<HashMap<String, u32>>,
     /// TODO unneeded?
     kind: ShaderKind,
@@ -209,15 +219,57 @@ pub struct WebGpuUniform {
 
 #[derive(Debug)]
 pub struct WebGpuVertexArray {
-    descriptor: (),
-    vertex_buffers: RefCell<Vec<WebGpuBuffer>>,
+    // todo use LazilyInitialized
+    vertex_buffers: RefCell<Vec<VertexBuffer>>,
     index_buffer: RefCell<Option<WebGpuBuffer>>,
+}
+
+#[derive(Debug, Clone)]
+struct VertexBuffer {
+    buffer: WebGpuBuffer,
+    stride: u64,
+    step_mode: wgpu::InputStepMode,
+    descriptor: Vec<wgpu::VertexAttributeDescriptor>,
 }
 
 #[derive(Debug)]
 pub struct WebGpuVertexAttr {
     name: String,
     bind_location: u32,
+}
+
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+struct LazilyInitialized<T>(RefCell<Option<T>>);
+
+impl<T> LazilyInitialized<T> {
+    pub fn uninitialized() -> Self {
+        Self(RefCell::new(None))
+    }
+
+    pub fn initialize_with(&self, t: T) {
+        let mut inner = self.0.borrow_mut();
+        if inner.is_some() {
+            panic!("already initialized");
+        }
+        *inner = Some(t);
+    }
+
+    pub fn initialize_or_replace_with(&self, t: T) -> Option<T> {
+        self.0.borrow_mut().replace(t)
+    }
+
+    pub fn assume_init(&self) -> std::cell::Ref<T> {
+        std::cell::Ref::map(self.0.borrow(), |a| {
+            a.as_ref().expect("should be initialized")
+        })
+    }
+
+    pub fn assume_init_mut(&self) -> std::cell::RefMut<T> {
+        std::cell::RefMut::map(self.0.borrow_mut(), |a| {
+            a.as_mut().expect("should be initialized")
+        })
+    }
 }
 
 /// Extension method for `i32` to reduce the code duplication of converting and unwrapping into a `u32`.
@@ -228,6 +280,16 @@ trait ExpectUnsigned {
 impl ExpectUnsigned for i32 {
     fn expect_unsigned(self) -> u32 {
         u32::try_from(self).expect("number must be unsigned")
+    }
+}
+
+fn texture_format_to_wgpu(format: TextureFormat) -> wgpu::TextureFormat {
+    match format {
+        TextureFormat::R8 => wgpu::TextureFormat::R8Unorm,
+        TextureFormat::R16F => wgpu::TextureFormat::R16Float,
+        TextureFormat::RGBA8 => wgpu::TextureFormat::Rgba8Unorm,
+        TextureFormat::RGBA16F => wgpu::TextureFormat::Rgba16Float,
+        TextureFormat::RGBA32F => wgpu::TextureFormat::Rgba32Float,
     }
 }
 
@@ -255,13 +317,7 @@ impl Device for WebGpuDevice {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: match format {
-                    TextureFormat::R8 => wgpu::TextureFormat::R8Unorm,
-                    TextureFormat::R16F => wgpu::TextureFormat::R16Float,
-                    TextureFormat::RGBA8 => wgpu::TextureFormat::Rgba8Unorm,
-                    TextureFormat::RGBA16F => wgpu::TextureFormat::Rgba16Float,
-                    TextureFormat::RGBA32F => wgpu::TextureFormat::Rgba32Float,
-                },
+                format: texture_format_to_wgpu(format),
                 usage: wgpu::TextureUsage::UNINITIALIZED, // TODO
             }),
             size,
@@ -331,6 +387,14 @@ impl Device for WebGpuDevice {
             None
         };
 
+        for descriptor_binding in reflect_module.enumerate_descriptor_bindings(Some("main")) {
+            dbg!(descriptor_binding);
+        }
+
+        // if name.starts_with("reproject") && kind == ShaderKind::Fragment {
+        //     panic!();
+        // }
+
         const SPIRV_WORD_LEN: usize = mem::size_of::<u32>();
         assert!(
             source.len() % SPIRV_WORD_LEN == 0,
@@ -357,7 +421,6 @@ impl Device for WebGpuDevice {
         // self.device.create_buffer(&wgpu::BufferDescriptor{ label: None, size: (), usage: ()});
 
         WebGpuVertexArray {
-            descriptor: (), // TODO
             vertex_buffers: RefCell::new(Vec::new()),
             index_buffer: RefCell::new(None),
         }
@@ -370,28 +433,6 @@ impl Device for WebGpuDevice {
         vertex_shader: Self::Shader,
         fragment_shader: Self::Shader,
     ) -> Self::Program {
-        // render pipeline?
-        // self.device
-        //     .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        //         layout: todo!(),
-        //         vertex_stage: wgpu::ProgrammableStageDescriptor {
-        //             module: vertex_shader.module,
-        //             entry_point: "main",
-        //         },
-        //         fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-        //             module: fragment_shader.module,
-        //             entry_point: "main",
-        //         }),
-        //         rasterization_state: todo!(),
-        //         primitive_topology: todo!(),
-        //         color_states: todo!(),
-        //         depth_stencil_state: todo!(),
-        //         vertex_state: todo!(),
-        //         sample_count: todo!(),
-        //         sample_mask: todo!(),
-        //         alpha_to_coverage_enabled: todo!(),
-        //     });
-
         // WebGPU's program is part of the render pipeline, which includes all GPU state, so we defer creating it until we know our state??
         WebGpuProgram {
             name: if cfg!(debug_assertions) {
@@ -432,12 +473,15 @@ impl Device for WebGpuDevice {
         target: BufferTarget,
     ) {
         match target {
-            BufferTarget::Vertex => vertex_array
-                .vertex_buffers
-                .borrow_mut()
-                .push((*buffer).clone()),
-            BufferTarget::Index => {
-                *vertex_array.index_buffer.borrow_mut() = Some((*buffer).clone())
+            BufferTarget::Vertex => vertex_array.vertex_buffers.borrow_mut().push(VertexBuffer {
+                buffer: buffer.clone(),
+                stride: 0, // unknown
+                step_mode: wgpu::InputStepMode::Vertex,
+                descriptor: Vec::new(),
+            }),
+            BufferTarget::Index => *vertex_array.index_buffer.borrow_mut() = Some(buffer.clone()),
+            BufferTarget::Storage => {
+                // TODO
             }
         }
     }
@@ -448,83 +492,82 @@ impl Device for WebGpuDevice {
         attr: &Self::VertexAttr,
         descriptor: &VertexAttrDescriptor,
     ) {
-        // self.device
-        //     .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        //         bind_group_layouts: (),
-        //     });
+        let mut vertex_buffer =
+            std::cell::RefMut::map(vertex_array.vertex_buffers.borrow_mut(), |r| {
+                r.get_mut(descriptor.buffer_index as usize)
+                    .expect("configuring a vertex attribute for an unbound buffer?")
+            });
 
-        // pub size: usize,
-        // pub class: VertexAttrClass,
-        // pub attr_type: VertexAttrType,
-        // pub stride: usize,
-        // pub offset: usize,
-        // pub divisor: u32,
-        // pub buffer_index: u32,
-
-        wgpu::VertexAttributeDescriptor {
-            offset: descriptor.offset as u64,
-            format: {
-                use pathfinder_gpu::VertexAttrClass as Class;
-                use pathfinder_gpu::VertexAttrType as Type;
-                use wgpu::VertexFormat as Format;
-
-                match (descriptor.class, descriptor.attr_type, descriptor.size) {
-                    // (Class::Int, Type::I8, 1) => Format::Char,
-                    (Class::Int, Type::I8, 2) => Format::Char2,
-                    // (Class::Int, Type::I8, 3) => Format::Char3,
-                    (Class::Int, Type::I8, 4) => Format::Char4,
-                    // (Class::Int, Type::U8, 1) => Format::Uchar,
-                    (Class::Int, Type::U8, 2) => Format::Uchar2,
-                    // (Class::Int, Type::U8, 3) => Format::Uchar3,
-                    (Class::Int, Type::U8, 4) => Format::Uchar4,
-                    // (Class::FloatNorm, Type::U8, 1) => Format::UcharNorm,
-                    (Class::FloatNorm, Type::U8, 2) => Format::Uchar2Norm,
-                    // (Class::FloatNorm, Type::U8, 3) => Format::Uchar3Norm,
-                    (Class::FloatNorm, Type::U8, 4) => Format::Uchar4Norm,
-                    // (Class::FloatNorm, Type::I8, 1) => Format::CharNorm,
-                    (Class::FloatNorm, Type::I8, 2) => Format::Char2Norm,
-                    // (Class::FloatNorm, Type::I8, 3) => Format::Char3Norm,
-                    (Class::FloatNorm, Type::I8, 4) => Format::Char4Norm,
-                    // (Class::Int, Type::I16, 1) => Format::Short,
-                    (Class::Int, Type::I16, 2) => Format::Short2,
-                    // (Class::Int, Type::I16, 3) => Format::Short3,
-                    (Class::Int, Type::I16, 4) => Format::Short4,
-                    // (Class::Int, Type::U16, 1) => Format::Ushort,
-                    (Class::Int, Type::U16, 2) => Format::Ushort2,
-                    // (Class::Int, Type::U16, 3) => Format::Ushort3,
-                    (Class::Int, Type::U16, 4) => Format::Ushort4,
-                    // (Class::FloatNorm, Type::U16, 1) => Format::UshortNorm,
-                    (Class::FloatNorm, Type::U16, 2) => Format::Ushort2Norm,
-                    // (Class::FloatNorm, Type::U16, 3) => Format::Ushort3Norm,
-                    (Class::FloatNorm, Type::U16, 4) => Format::Ushort4Norm,
-                    // (Class::FloatNorm, Type::I16, 1) => Format::ShortNorm,
-                    (Class::FloatNorm, Type::I16, 2) => Format::Short2Norm,
-                    // (Class::FloatNorm, Type::I16, 3) => Format::Short3Norm,
-                    (Class::FloatNorm, Type::I16, 4) => Format::Short4Norm,
-                    (Class::Float, Type::F32, 1) => Format::Float,
-                    (Class::Float, Type::F32, 2) => Format::Float2,
-                    (Class::Float, Type::F32, 3) => Format::Float3,
-                    (Class::Float, Type::F32, 4) => Format::Float4,
-                    (attr_class, attr_type, attr_size) => panic!(
-                        "Unsupported vertex class/type/size combination: {:?}/{:?}/{}!",
-                        attr_class, attr_type, attr_size
-                    ),
-                }
-            },
-            shader_location: attr.bind_location,
+        vertex_buffer.stride = descriptor.stride as u64;
+        vertex_buffer.step_mode = match descriptor.divisor {
+            0 => wgpu::InputStepMode::Vertex,
+            1 => wgpu::InputStepMode::Instance,
+            _ => panic!(),
         };
+        vertex_buffer
+            .descriptor
+            .push(wgpu::VertexAttributeDescriptor {
+                offset: descriptor.offset as u64,
+                format: {
+                    use pathfinder_gpu::VertexAttrClass as Class;
+                    use pathfinder_gpu::VertexAttrType as Type;
+                    use wgpu::VertexFormat as Format;
 
-        // perhaps more to do?
-        // todo!()
+                    // TODO waste the second half of unsupported attribute types? or just let them overlap and be unsafe in shaders?
+                    match (descriptor.class, descriptor.attr_type, descriptor.size) {
+                        (Class::Int, Type::I8, 1) => Format::Char2, // TODO: format unsupported by WebGPU
+                        (Class::Int, Type::I8, 2) => Format::Char2,
+                        (Class::Int, Type::I8, 3) => Format::Char4, // TODO: format unsupported by WebGPU
+                        (Class::Int, Type::I8, 4) => Format::Char4,
+                        (Class::Int, Type::U8, 1) => Format::Uchar2, // TODO: format unsupported by WebGPU
+                        (Class::Int, Type::U8, 2) => Format::Uchar2,
+                        (Class::Int, Type::U8, 3) => Format::Uchar4, // TODO: format unsupported by WebGPU
+                        (Class::Int, Type::U8, 4) => Format::Uchar4,
+                        (Class::FloatNorm, Type::U8, 1) => Format::Uchar2Norm, // TODO: format unsupported by WebGPU
+                        (Class::FloatNorm, Type::U8, 2) => Format::Uchar2Norm,
+                        (Class::FloatNorm, Type::U8, 3) => Format::Uchar4Norm, // TODO: format unsupported by WebGPU
+                        (Class::FloatNorm, Type::U8, 4) => Format::Uchar4Norm,
+                        (Class::FloatNorm, Type::I8, 1) => Format::Char2Norm, // TODO: format unsupported by WebGPU
+                        (Class::FloatNorm, Type::I8, 2) => Format::Char2Norm,
+                        (Class::FloatNorm, Type::I8, 3) => Format::Char4Norm, // TODO: format unsupported by WebGPU
+                        (Class::FloatNorm, Type::I8, 4) => Format::Char4Norm,
+                        (Class::Int, Type::I16, 1) => Format::Short2, // TODO: format unsupported by WebGPU
+                        (Class::Int, Type::I16, 2) => Format::Short2,
+                        (Class::Int, Type::I16, 3) => Format::Short4, // TODO: format unsupported by WebGPU
+                        (Class::Int, Type::I16, 4) => Format::Short4,
+                        (Class::Int, Type::U16, 1) => Format::Ushort2, // TODO: format unsupported by WebGPU
+                        (Class::Int, Type::U16, 2) => Format::Ushort2,
+                        (Class::Int, Type::U16, 3) => Format::Ushort4, // TODO: format unsupported by WebGPU
+                        (Class::Int, Type::U16, 4) => Format::Ushort4,
+                        (Class::FloatNorm, Type::U16, 1) => Format::Ushort2Norm, // TODO: format unsupported by WebGPU
+                        (Class::FloatNorm, Type::U16, 2) => Format::Ushort2Norm,
+                        (Class::FloatNorm, Type::U16, 3) => Format::Ushort4Norm, // TODO: format unsupported by WebGPU
+                        (Class::FloatNorm, Type::U16, 4) => Format::Ushort4Norm,
+                        (Class::FloatNorm, Type::I16, 1) => Format::Short2Norm, // TODO: format unsupported by WebGPU
+                        (Class::FloatNorm, Type::I16, 2) => Format::Short2Norm,
+                        (Class::FloatNorm, Type::I16, 3) => Format::Short4Norm, // TODO: format unsupported by WebGPU
+                        (Class::FloatNorm, Type::I16, 4) => Format::Short4Norm,
+                        (Class::Float, Type::F32, 1) => Format::Float,
+                        (Class::Float, Type::F32, 2) => Format::Float2,
+                        (Class::Float, Type::F32, 3) => Format::Float3,
+                        (Class::Float, Type::F32, 4) => Format::Float4,
+                        (attr_class, attr_type, attr_size) => panic!(
+                            "Unsupported vertex class/type/size combination: {:?}/{:?}/{}!",
+                            attr_class, attr_type, attr_size
+                        ),
+                    }
+                },
+                shader_location: attr.bind_location,
+            });
     }
 
     fn create_framebuffer(&self, texture: Self::Texture) -> Self::Framebuffer {
-        todo!()
+        WebGpuFramebuffer(texture)
     }
 
     fn create_buffer(&self) -> Self::Buffer {
         WebGpuBuffer {
-            inner: Rc::new(RefCell::new(None)),
+            inner: LazilyInitialized::uninitialized(),
         }
     }
 
@@ -543,12 +586,24 @@ impl Device for WebGpuDevice {
 
         // TODO use mode?
 
+        // TODO probably not a good idea to have both src and dst?
         let usage = match target {
-            BufferTarget::Vertex => wgpu::BufferUsage::VERTEX,
-            BufferTarget::Index => wgpu::BufferUsage::INDEX,
+            BufferTarget::Vertex => {
+                wgpu::BufferUsage::VERTEX
+                    | wgpu::BufferUsage::COPY_SRC
+                    | wgpu::BufferUsage::COPY_DST
+            }
+            BufferTarget::Index => {
+                wgpu::BufferUsage::INDEX | wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::COPY_DST
+            }
+            BufferTarget::Storage => {
+                wgpu::BufferUsage::STORAGE
+                    | wgpu::BufferUsage::COPY_SRC
+                    | wgpu::BufferUsage::COPY_DST
+            }
         } | wgpu::BufferUsage::empty();
 
-        let (new_buffer, len) = match data {
+        let (new_buffer, new_len) = match data {
             BufferData::Uninitialized(size) => (
                 self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: None,
@@ -568,17 +623,37 @@ impl Device for WebGpuDevice {
             }
         };
 
-        let mut old_buffer = buffer.inner.borrow_mut();
-        if let Some(old_buffer) = &*old_buffer {
-            let mut encoder = self.borrow_current_command_encoder();
-            encoder.copy_buffer_to_buffer(&new_buffer, 0, &old_buffer, 0, len as u64);
-        } else {
-            *old_buffer = Some(new_buffer);
-        }
+        buffer
+            .inner
+            .initialize_or_replace_with(Rc::new(BufferStorage {
+                buffer: new_buffer,
+                size: new_len,
+            }));
+
+        // TODO should we reuse old buffer?
+        // let mut old_inner = buffer.inner.borrow_mut();
+        // if let BufferStorage::Allocated { buffer, size } = &*old_inner {
+        //     let mut encoder = self.borrow_current_command_encoder();
+        //     // TODO mismatched size?
+        //     if *size <= new_len {
+        //         // if len == *size {
+        //         encoder.copy_buffer_to_buffer(&new_buffer, 0, buffer, 0, new_len as u64);
+        //     } else {
+        //         *old_inner = BufferStorage::Allocated {
+        //             buffer: Rc::new(new_buffer),
+        //             size: new_len,
+        //         };
+        //     }
+        // } else {
+        //     *old_inner = BufferStorage::Allocated {
+        //         buffer: Rc::new(new_buffer),
+        //         size: new_len,
+        //     };
+        // }
     }
 
     fn framebuffer_texture<'f>(&self, framebuffer: &'f Self::Framebuffer) -> &'f Self::Texture {
-        todo!()
+        &framebuffer.0
     }
 
     fn destroy_framebuffer(&self, framebuffer: Self::Framebuffer) -> Self::Texture {
@@ -604,7 +679,7 @@ impl Device for WebGpuDevice {
         type f16 = u16;
 
         let data = unsafe {
-            let data_ptr = data.check_and_extract_data_ptr(texture.size, texture.format);
+            let data_ptr = data.check_and_extract_data_ptr(rect.size(), texture.format);
             let data_len = match data {
                 TextureDataRef::U8(data) => data.len() * mem::size_of::<u8>(),
                 TextureDataRef::F16(data) => data.len() * mem::size_of::<f16>(),
@@ -695,11 +770,292 @@ impl Device for WebGpuDevice {
         instance_count: u32,
         render_state: &RenderState<Self>,
     ) {
-        todo!()
+        let mut encoder = self.borrow_current_command_encoder();
+
+        // render_pass.set_pipeline(todo!());
+
+        let vertex_buffers: Vec<_> = render_state
+            .vertex_array
+            .vertex_buffers
+            .borrow()
+            .iter()
+            .map(|buffer| buffer.buffer.inner.assume_init().clone())
+            .collect();
+
+        let index_buffer = render_state
+            .vertex_array
+            .index_buffer
+            .borrow()
+            .as_ref()
+            .expect("index buffer should be bound to vertex array before drawing")
+            .inner
+            .assume_init()
+            .clone();
+
+        let target_view = match render_state.target {
+            RenderTarget::Default => todo!(),
+            RenderTarget::Framebuffer(framebuffer) => framebuffer.0.inner.create_default_view(),
+        };
+
+        let a = render_state.vertex_array.vertex_buffers.borrow().clone();
+        let vertex_buffer_descriptors = {
+            a.iter()
+                .map(|vertex_buffer| wgpu::VertexBufferDescriptor {
+                    stride: vertex_buffer.stride,
+                    step_mode: wgpu::InputStepMode::Vertex,
+                    attributes: &vertex_buffer.descriptor,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // TODO cache the program. how do we know the render options/vertex layout/bind groups beforehand? just cache after first render?
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                bind_group_layouts: &[&self.device.create_bind_group_layout(
+                    &wgpu::BindGroupLayoutDescriptor {
+                        bindings: &[
+                                        // todo
+                                        // wgpu::BindGroupLayoutEntry {
+                                        //     binding: todo!(),
+                                        //     visibility: todo!(),
+                                        //     ty: todo!(),
+                                        // },
+                                    ],
+                        label: None,
+                    },
+                )],
+            });
+
+        fn to_wgpu_blend_descriptor(
+            src_factor: BlendFactor,
+            dest_factor: BlendFactor,
+            operation: BlendOp,
+        ) -> wgpu::BlendDescriptor {
+            fn to_wgpu_blend_factor(blend_factor: BlendFactor) -> wgpu::BlendFactor {
+                match blend_factor {
+                    BlendFactor::Zero => wgpu::BlendFactor::Zero,
+                    BlendFactor::One => wgpu::BlendFactor::One,
+                    BlendFactor::SrcAlpha => wgpu::BlendFactor::SrcAlpha,
+                    BlendFactor::OneMinusSrcAlpha => wgpu::BlendFactor::OneMinusSrcAlpha,
+                    BlendFactor::DestAlpha => wgpu::BlendFactor::DstAlpha,
+                    BlendFactor::OneMinusDestAlpha => wgpu::BlendFactor::OneMinusDstAlpha,
+                    BlendFactor::DestColor => wgpu::BlendFactor::DstColor,
+                }
+            }
+
+            wgpu::BlendDescriptor {
+                src_factor: to_wgpu_blend_factor(src_factor),
+                dst_factor: to_wgpu_blend_factor(dest_factor),
+                operation: match operation {
+                    BlendOp::Add => wgpu::BlendOperation::Add,
+                    BlendOp::Subtract => wgpu::BlendOperation::Subtract,
+                    BlendOp::ReverseSubtract => wgpu::BlendOperation::ReverseSubtract,
+                    BlendOp::Min => wgpu::BlendOperation::Min,
+                    BlendOp::Max => wgpu::BlendOperation::Max,
+                },
+            }
+        }
+
+        dbg!(render_state.program);
+        let render_pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                layout: &pipeline_layout,
+                vertex_stage: wgpu::ProgrammableStageDescriptor {
+                    module: &render_state.program.vertex_shader.module,
+                    entry_point: "main",
+                },
+                fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+                    module: &render_state.program.fragment_shader.module,
+                    entry_point: "main",
+                }),
+                rasterization_state: Some(wgpu::RasterizationStateDescriptor {
+                    front_face: wgpu::FrontFace::Cw,
+                    cull_mode: wgpu::CullMode::None, // todo
+                    depth_bias: 0,
+                    depth_bias_slope_scale: 0.0,
+                    depth_bias_clamp: 0.0,
+                }),
+                primitive_topology: match render_state.primitive {
+                    pathfinder_gpu::Primitive::Triangles => wgpu::PrimitiveTopology::TriangleList,
+                    pathfinder_gpu::Primitive::Lines => wgpu::PrimitiveTopology::LineList,
+                },
+                color_states: &[wgpu::ColorStateDescriptor {
+                    format: match render_state.target {
+                        RenderTarget::Default => {
+                            // TODO is the assumption that the backbuffer is rgba8 okay?
+                            wgpu::TextureFormat::Rgba8Unorm
+                        }
+                        RenderTarget::Framebuffer(framebuffer) => {
+                            texture_format_to_wgpu(framebuffer.0.format)
+                        }
+                    },
+                    color_blend: render_state
+                        .options
+                        .blend
+                        .map(|blend_state| {
+                            to_wgpu_blend_descriptor(
+                                blend_state.src_rgb_factor,
+                                blend_state.dest_rgb_factor,
+                                blend_state.op,
+                            )
+                        })
+                        .unwrap_or(wgpu::BlendDescriptor::REPLACE),
+                    alpha_blend: render_state
+                        .options
+                        .blend
+                        .map(|blend_state| {
+                            to_wgpu_blend_descriptor(
+                                blend_state.src_alpha_factor,
+                                blend_state.dest_alpha_factor,
+                                blend_state.op,
+                            )
+                        })
+                        .unwrap_or(wgpu::BlendDescriptor::REPLACE),
+                    write_mask: if render_state.options.color_mask {
+                        wgpu::ColorWrite::ALL
+                    } else {
+                        wgpu::ColorWrite::empty()
+                    },
+                }],
+                depth_stencil_state: {
+                    if render_state.options.depth.is_some()
+                        || render_state.options.stencil.is_some()
+                    {
+                        let stencil_state_descriptor = render_state
+                            .options
+                            .stencil
+                            .map(|stencil_state| wgpu::StencilStateFaceDescriptor {
+                                compare: match stencil_state.func {
+                                    pathfinder_gpu::StencilFunc::Always => {
+                                        wgpu::CompareFunction::Always
+                                    }
+                                    pathfinder_gpu::StencilFunc::Equal => {
+                                        wgpu::CompareFunction::Equal
+                                    }
+                                },
+                                fail_op: wgpu::StencilOperation::Keep,
+                                depth_fail_op: wgpu::StencilOperation::Keep,
+                                pass_op: if stencil_state.write {
+                                    wgpu::StencilOperation::Replace
+                                } else {
+                                    wgpu::StencilOperation::Keep
+                                },
+                            })
+                            .unwrap_or(wgpu::StencilStateFaceDescriptor::IGNORE);
+
+                        Some(wgpu::DepthStencilStateDescriptor {
+                            format: wgpu::TextureFormat::Depth24PlusStencil8,
+                            depth_write_enabled: render_state
+                                .options
+                                .depth
+                                .map(|depth_state| depth_state.write)
+                                .unwrap_or(false),
+                            depth_compare: render_state
+                                .options
+                                .depth
+                                .map(|depth_state| match depth_state.func {
+                                    DepthFunc::Less => wgpu::CompareFunction::Less,
+                                    DepthFunc::Always => wgpu::CompareFunction::Always,
+                                })
+                                .unwrap_or(wgpu::CompareFunction::Never),
+                            stencil_front: stencil_state_descriptor.clone(),
+                            stencil_back: stencil_state_descriptor,
+                            stencil_read_mask: render_state
+                                .options
+                                .stencil
+                                .map(|stencil_state| stencil_state.reference)
+                                .unwrap_or(!0),
+                            stencil_write_mask: render_state
+                                .options
+                                .stencil
+                                .map(|stencil_state| stencil_state.mask)
+                                .unwrap_or(0),
+                        })
+                    } else {
+                        None
+                    }
+                },
+                vertex_state: wgpu::VertexStateDescriptor {
+                    index_format: wgpu::IndexFormat::Uint32,
+                    vertex_buffers: &vertex_buffer_descriptors,
+                },
+                sample_count: 1,
+                sample_mask: !0,
+                alpha_to_coverage_enabled: false,
+            });
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                attachment: &target_view,
+                resolve_target: None,
+                load_op: if render_state.options.clear_ops.color.is_some() {
+                    wgpu::LoadOp::Clear
+                } else {
+                    wgpu::LoadOp::Load
+                },
+                store_op: wgpu::StoreOp::Store,
+                clear_color: render_state.options.clear_ops.color.map_or(
+                    wgpu::Color::TRANSPARENT,
+                    |color| wgpu::Color {
+                        r: color.r().into(),
+                        g: color.g().into(),
+                        b: color.b().into(),
+                        a: color.a().into(),
+                    },
+                ),
+            }],
+            depth_stencil_attachment: if matches!(render_state.target, RenderTarget::Default) {
+                Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &self.main_depth_stencil_texture_view,
+                    depth_load_op: if render_state.options.clear_ops.depth.is_some() {
+                        wgpu::LoadOp::Clear
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
+                    depth_store_op: wgpu::StoreOp::Store,
+                    clear_depth: render_state.options.clear_ops.depth.unwrap_or(0.0),
+                    stencil_load_op: if render_state.options.clear_ops.stencil.is_some() {
+                        wgpu::LoadOp::Clear
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
+                    stencil_store_op: wgpu::StoreOp::Store,
+                    clear_stencil: render_state.options.clear_ops.stencil.unwrap_or(0).into(),
+                })
+            } else {
+                None
+            },
+        });
+
+        render_pass.set_pipeline(&render_pipeline);
+
+        render_pass.set_viewport(
+            render_state.viewport.origin_x() as f32,
+            render_state.viewport.origin_y() as f32,
+            render_state.viewport.width() as f32,
+            render_state.viewport.height() as f32,
+            0.0,
+            1.0,
+        );
+        // render_pass.set_bind_group(index, bind_group, offsets);
+
+        for (slot, vertex_buffer) in vertex_buffers.iter().enumerate() {
+            render_pass.set_vertex_buffer(
+                slot as u32,
+                &vertex_buffer.buffer,
+                0,
+                vertex_buffer.size as u64,
+            );
+        }
+
+        render_pass.set_index_buffer(&index_buffer.buffer, 0, index_buffer.size as u64);
+        render_pass.draw_indexed(0..index_count, 0, 0..instance_count);
     }
 
     fn create_timer_query(&self) -> Self::TimerQuery {
-        todo!()
+        WebGpuTimerQuery {}
     }
 
     fn begin_timer_query(&self, query: &Self::TimerQuery) {

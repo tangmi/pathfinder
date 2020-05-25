@@ -1,4 +1,3 @@
-// Automatically generated from files in pathfinder/shaders/. Do not edit!
 #include <metal_stdlib>
 #include <simd/simd.h>
 

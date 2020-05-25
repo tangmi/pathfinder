@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/blit.fs.glsl
 //
@@ -10,19 +10,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
+layout(set = 0, binding = 0) uniform sampler uSrcSampler;
+layout(set = 1, binding = 0) uniform texture2D uSrc;
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
+layout(location = 0) in vec2 vTexCoord;
 
-uniform sampler2D uSrc;
-
-in vec2 vTexCoord;
-
-out vec4 oFragColor;
+layout(location = 0) out vec4 oFragColor;
 
 void main() {
-    vec4 color = texture(uSrc, vTexCoord);
+    vec4 color = texture(sampler2D(uSrc, uSrcSampler), vTexCoord);
     oFragColor = vec4(color.rgb * color.a, color.a);
 }

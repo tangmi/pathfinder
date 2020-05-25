@@ -1,10 +1,15 @@
-// Automatically generated from files in pathfinder/shaders/. Do not edit!
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
 
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using namespace metal;
+
+struct Globals
+{
+    float2 uFramebufferSize;
+    float2 uTileSize;
+};
 
 struct main0_out
 {
@@ -24,19 +29,19 @@ struct main0_in
 };
 
 static inline __attribute__((always_inline))
-float2 computeTileOffset(thread const uint& tileIndex, thread const float& stencilTextureWidth, thread float2 uTileSize)
+float2 computeTileOffset(thread const uint& tileIndex, thread const float& stencilTextureWidth, constant Globals& v_20)
 {
-    uint tilesPerRow = uint(stencilTextureWidth / uTileSize.x);
+    uint tilesPerRow = uint(stencilTextureWidth / v_20.uTileSize.x);
     uint2 tileOffset = uint2(tileIndex % tilesPerRow, tileIndex / tilesPerRow);
-    return (float2(tileOffset) * uTileSize) * float2(1.0, 0.25);
+    return (float2(tileOffset) * v_20.uTileSize) * float2(1.0, 0.25);
 }
 
-vertex main0_out main0(main0_in in [[stage_in]], constant float2& uTileSize [[buffer(0)]], constant float2& uFramebufferSize [[buffer(1)]])
+vertex main0_out main0(main0_in in [[stage_in]], constant Globals& v_20 [[buffer(0)]])
 {
     main0_out out = {};
     uint param = in.aTileIndex;
-    float param_1 = uFramebufferSize.x;
-    float2 tileOrigin = computeTileOffset(param, param_1, uTileSize);
+    float param_1 = v_20.uFramebufferSize.x;
+    float2 tileOrigin = computeTileOffset(param, param_1, v_20);
     float2 from = float2(float(in.aFromPx & 15u), float(in.aFromPx >> 4u)) + in.aFromSubpx;
     float2 to = float2(float(in.aToPx & 15u), float(in.aToPx >> 4u)) + in.aToSubpx;
     float2 position;
@@ -54,15 +59,15 @@ vertex main0_out main0(main0_in in [[stage_in]], constant float2& uTileSize [[bu
     }
     else
     {
-        position.y = uTileSize.y;
+        position.y = v_20.uTileSize.y;
     }
     position.y = floor(position.y * 0.25);
     float2 offset = float2(0.0, 1.5) - (position * float2(1.0, 4.0));
     out.vFrom = from + offset;
     out.vTo = to + offset;
-    float2 globalPosition = (((tileOrigin + position) / uFramebufferSize) * 2.0) - float2(1.0);
-    globalPosition.y = -globalPosition.y;
+    float2 globalPosition = (((tileOrigin + position) / v_20.uFramebufferSize) * 2.0) - float2(1.0);
     out.gl_Position = float4(globalPosition, 0.0, 1.0);
+    out.gl_Position.y = -(out.gl_Position.y);    // Invert Y-axis for Metal
     return out;
 }
 

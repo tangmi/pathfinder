@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/tile_clip.fs.glsl
 //
@@ -10,19 +10,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
+layout(set = 0, binding = 0) uniform sampler uSrcSampler;
+layout(set = 1, binding = 0) uniform texture2D uSrc;
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
+layout(location = 0) in vec2 vTexCoord;
+layout(location = 1) in float vBackdrop;
 
-uniform sampler2D uSrc;
-
-in vec2 vTexCoord;
-in float vBackdrop;
-
-out vec4 oFragColor;
+layout(location = 0) out vec4 oFragColor;
 
 void main() {
-    oFragColor = clamp(abs(texture(uSrc, vTexCoord) + vBackdrop), 0.0, 1.0);
+    oFragColor = clamp(abs(texture(sampler2D(uSrc, uSrcSampler), vTexCoord) + vBackdrop), 0.0, 1.0);
 }

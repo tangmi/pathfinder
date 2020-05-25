@@ -1,8 +1,13 @@
-// Automatically generated from files in pathfinder/shaders/. Do not edit!
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using namespace metal;
+
+struct Globals
+{
+    float4 uGroundColor;
+    float4 uGridlineColor;
+};
 
 struct main0_out
 {
@@ -14,11 +19,20 @@ struct main0_in
     float2 vTexCoord [[user(locn0)]];
 };
 
-fragment main0_out main0(main0_in in [[stage_in]], constant float4& uGridlineColor [[buffer(0)]], constant float4& uGroundColor [[buffer(1)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Globals& _33 [[buffer(0)]])
 {
     main0_out out = {};
     float2 texCoordPx = fract(in.vTexCoord) / fwidth(in.vTexCoord);
-    out.oFragColor = select(uGroundColor, uGridlineColor, bool4(any(texCoordPx <= float2(1.0))));
+    float4 _28;
+    if (any(texCoordPx <= float2(1.0)))
+    {
+        _28 = _33.uGridlineColor;
+    }
+    else
+    {
+        _28 = _33.uGroundColor;
+    }
+    out.oFragColor = _28;
     return out;
 }
 

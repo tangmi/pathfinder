@@ -1,4 +1,3 @@
-// Automatically generated from files in pathfinder/shaders/. Do not edit!
 #include <metal_stdlib>
 #include <simd/simd.h>
 
@@ -27,6 +26,7 @@ vertex main0_out main0(main0_in in [[stage_in]])
     out.vTexCoord = srcPosition;
     out.vBackdrop = float(in.aSrcBackdrop);
     out.gl_Position = float4(mix(float2(-1.0), float2(1.0), destPosition), 0.0, 1.0);
+    out.gl_Position.y = -(out.gl_Position.y);    // Invert Y-axis for Metal
     return out;
 }
 

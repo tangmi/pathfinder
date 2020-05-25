@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/stencil.fs.glsl
 //
@@ -10,13 +10,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
-
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
-
-out vec4 oFragColor;
+layout(location = 0) out vec4 oFragColor;
 
 void main() {
     // This should be color masked out.

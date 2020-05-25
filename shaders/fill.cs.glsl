@@ -12,18 +12,15 @@
 
 #extension GL_GOOGLE_include_directive : enable
 
-precision highp float;
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
 
 #include "fill.inc.glsl"
 
 layout(local_size_x = 16, local_size_y = 4) in;
 
 uniform writeonly image2D uDest;
-uniform sampler2D uAreaLUT;
+layout(set = 0, binding = 0) uniform sampler uAreaLUTSampler;
+layout(set = 1, binding = 0) uniform texture2D uAreaLUT;
 uniform int uFirstTileIndex;
 
 layout(std430, binding = 0) buffer bFills {
@@ -58,7 +55,8 @@ void main() {
 
         coverages += computeCoverage(from - (vec2(tileSubCoord) + vec2(0.5)),
                                      to   - (vec2(tileSubCoord) + vec2(0.5)),
-                                     uAreaLUT);
+                                     uAreaLUT,
+                                     uAreaLUTSampler);
 
         fillIndex = iNextFills[fillIndex];
     } while (fillIndex >= 0);

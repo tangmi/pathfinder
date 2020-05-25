@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/tile_copy.fs.glsl
 //
@@ -10,18 +10,16 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
+layout(set = 0, binding = 0) uniform sampler uSrcSampler;
+layout(set = 1, binding = 0) uniform texture2D uSrc;
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
+layout(set = 0, binding = 0) uniform Globals {
+    vec2 uFramebufferSize;
+};
 
-uniform vec2 uFramebufferSize;
-uniform sampler2D uSrc;
-
-out vec4 oFragColor;
+layout(location = 0) out vec4 oFragColor;
 
 void main() {
     vec2 texCoord = gl_FragCoord.xy / uFramebufferSize;
-    oFragColor = texture(uSrc, texCoord);
+    oFragColor = texture(sampler2D(uSrc, uSrcSampler), texCoord);
 }

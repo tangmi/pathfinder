@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/tile_clip.vs.glsl
 //
@@ -10,19 +10,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
+layout(location = 0) in ivec2 aTileOffset;
+layout(location = 1) in ivec2 aDestTileOrigin;
+layout(location = 2) in ivec2 aSrcTileOrigin;
+layout(location = 3) in int aSrcBackdrop;
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
-
-in ivec2 aTileOffset;
-in ivec2 aDestTileOrigin;
-in ivec2 aSrcTileOrigin;
-in int aSrcBackdrop;
-
-out vec2 vTexCoord;
-out float vBackdrop;
+layout(location = 0) out vec2 vTexCoord;
+layout(location = 1) out float vBackdrop;
 
 void main() {
     vec2 destPosition = vec2(aDestTileOrigin + aTileOffset) / vec2(256.0);

@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/blit.vs.glsl
 //
@@ -10,15 +10,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
 
-in ivec2 aPosition;
+layout(location = 0) in ivec2 aPosition;
 
-out vec2 vTexCoord;
+layout(location = 0) out vec2 vTexCoord;
 
 void main() {
     vec2 texCoord = vec2(aPosition);

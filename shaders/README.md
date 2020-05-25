@@ -1,0 +1,3 @@
+needs:
+- cmake
+- ninja

@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/stencil.vs.glsl
 //
@@ -10,13 +10,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
-
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
-
-in vec3 aPosition;
+layout(location = 0) in vec3 aPosition;
 
 void main() {
     gl_Position = vec4(aPosition, 1.0);

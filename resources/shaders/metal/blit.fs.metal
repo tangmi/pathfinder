@@ -1,4 +1,3 @@
-// Automatically generated from files in pathfinder/shaders/. Do not edit!
 #include <metal_stdlib>
 #include <simd/simd.h>
 
@@ -14,10 +13,10 @@ struct main0_in
     float2 vTexCoord [[user(locn0)]];
 };
 
-fragment main0_out main0(main0_in in [[stage_in]], texture2d<float> uSrc [[texture(0)]], sampler uSrcSmplr [[sampler(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], texture2d<float> uSrc [[texture(0)]], sampler uSrcSampler [[sampler(0)]])
 {
     main0_out out = {};
-    float4 color = uSrc.sample(uSrcSmplr, in.vTexCoord);
+    float4 color = uSrc.sample(uSrcSampler, in.vTexCoord);
     out.oFragColor = float4(color.xyz * color.w, color.w);
     return out;
 }

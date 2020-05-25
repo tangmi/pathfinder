@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/clear.vs.glsl
 //
@@ -10,16 +10,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
+layout(set = 0, binding = 0) uniform Globals {
+    vec4 uRect;
+    vec2 uFramebufferSize;
+};
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
-
-uniform vec4 uRect;
-uniform vec2 uFramebufferSize;
-
-in ivec2 aPosition;
+layout(location = 0) in ivec2 aPosition;
 
 void main() {
     vec2 position = mix(uRect.xy, uRect.zw, vec2(aPosition)) / uFramebufferSize * 2.0 - 1.0;

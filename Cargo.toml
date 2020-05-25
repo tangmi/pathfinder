@@ -67,6 +67,10 @@ default-members = [
     "utils/convert",
 ]
 
+exclude = [
+    "shaders",
+]
+
 [patch.crates-io]
 pathfinder_geometry = { path = "geometry" }
 pathfinder_simd = { path = "simd" }

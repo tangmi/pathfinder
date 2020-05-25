@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/debug_texture.fs.glsl
 //
@@ -10,20 +10,18 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
+layout(set = 0, binding = 0) uniform sampler uTextureSampler;
+layout(set = 1, binding = 0) uniform texture2D uTexture;
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
+layout(set = 0, binding = 0) uniform Globals {
+    vec4 uColor;
+};
 
-uniform sampler2D uTexture;
-uniform vec4 uColor;
+layout(location = 0) in vec2 vTexCoord;
 
-in vec2 vTexCoord;
-
-out vec4 oFragColor;
+layout(location = 0) out vec4 oFragColor;
 
 void main() {
-    float alpha = texture(uTexture, vTexCoord).r * uColor.a;
+    float alpha = texture(sampler2D(uTexture, uTextureSampler), vTexCoord).r * uColor.a;
     oFragColor = alpha * vec4(uColor.rgb, 1.0);
 }

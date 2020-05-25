@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/fill.fs.glsl
 //
@@ -12,21 +12,16 @@
 
 #extension GL_GOOGLE_include_directive : enable
 
-precision highp float;
-
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
-
 #include "fill.inc.glsl"
 
-uniform sampler2D uAreaLUT;
+layout(set = 0, binding = 0) uniform sampler uAreaLUTSampler;
+layout(set = 1, binding = 0) uniform texture2D uAreaLUT;
 
-in vec2 vFrom;
-in vec2 vTo;
+layout(location = 0) in vec2 vFrom;
+layout(location = 1) in vec2 vTo;
 
-out vec4 oFragColor;
+layout(location = 0) out vec4 oFragColor;
 
 void main() {
-    oFragColor = computeCoverage(vFrom, vTo, uAreaLUT);
+    oFragColor = computeCoverage(vFrom, vTo, uAreaLUT, uAreaLUTSampler);
 }

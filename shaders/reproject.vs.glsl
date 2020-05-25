@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/reproject.vs.glsl
 //
@@ -10,17 +10,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
+layout(set = 0, binding = 0) uniform Globals {
+    mat4 uNewTransform;
+};
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
+layout(location = 0) in ivec2 aPosition;
 
-uniform mat4 uNewTransform;
-
-in ivec2 aPosition;
-
-out vec2 vTexCoord;
+layout(location = 0) out vec2 vTexCoord;
 
 void main() {
     vec2 position = vec2(aPosition);

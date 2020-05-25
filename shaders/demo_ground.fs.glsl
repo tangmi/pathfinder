@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/resources/shaders/demo_ground.fs.glsl
 //
@@ -10,18 +10,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
+layout(set = 0, binding = 0) uniform Globals {
+    vec4 uGroundColor;
+    vec4 uGridlineColor;
+};
 
-uniform vec4 uGroundColor;
-uniform vec4 uGridlineColor;
+layout(location = 0) in vec2 vTexCoord;
 
-in vec2 vTexCoord;
-
-out vec4 oFragColor;
+layout(location = 0) out vec4 oFragColor;
 
 void main() {
     vec2 texCoordPx = fract(vTexCoord) / fwidth(vTexCoord);

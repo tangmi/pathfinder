@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/clear.fs.glsl
 //
@@ -10,15 +10,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
+layout(set = 0, binding = 0) uniform Globals {
+    vec4 uColor;
+};
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
-
-uniform vec4 uColor;
-
-out vec4 oFragColor;
+layout(location = 0) out vec4 oFragColor;
 
 void main() {
     oFragColor = vec4(uColor.rgb, 1.0) * uColor.a;

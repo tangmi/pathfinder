@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/reproject.fs.glsl
 //
@@ -10,21 +10,19 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
+layout(set = 0, binding = 0) uniform sampler uTextureSampler;
+layout(set = 1, binding = 0) uniform texture2D uTexture;
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
+layout(set = 0, binding = 0) uniform Globals {
+    mat4 uOldTransform;
+};
 
-uniform mat4 uOldTransform;
-uniform sampler2D uTexture;
+layout(location = 0) in vec2 vTexCoord;
 
-in vec2 vTexCoord;
-
-out vec4 oFragColor;
+layout(location = 0) out vec4 oFragColor;
 
 void main() {
     vec4 normTexCoord = uOldTransform * vec4(vTexCoord, 0.0, 1.0);
     vec2 texCoord = ((normTexCoord.xy / normTexCoord.w) + 1.0) * 0.5;
-    oFragColor = texture(uTexture, texCoord);
+    oFragColor = texture(sampler2D(uTexture, uTextureSampler), texCoord);
 }

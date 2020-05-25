@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/tile_copy.vs.glsl
 //
@@ -10,16 +10,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
+layout(set = 0, binding = 0) uniform Globals {
+    mat4 uTransform;
+    vec2 uTileSize;
+};
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
-
-uniform mat4 uTransform;
-uniform vec2 uTileSize;
-
-in ivec2 aTilePosition;
+layout(location = 0) in ivec2 aTilePosition;
 
 void main() {
     vec2 position = vec2(aTilePosition) * uTileSize;

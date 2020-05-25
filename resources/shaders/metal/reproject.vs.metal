@@ -1,8 +1,12 @@
-// Automatically generated from files in pathfinder/shaders/. Do not edit!
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using namespace metal;
+
+struct Globals
+{
+    float4x4 uNewTransform;
+};
 
 struct main0_out
 {
@@ -15,13 +19,13 @@ struct main0_in
     int2 aPosition [[attribute(0)]];
 };
 
-vertex main0_out main0(main0_in in [[stage_in]], constant float4x4& uNewTransform [[buffer(0)]])
+vertex main0_out main0(main0_in in [[stage_in]], constant Globals& _30 [[buffer(0)]])
 {
     main0_out out = {};
     float2 position = float2(in.aPosition);
     out.vTexCoord = position;
-    position.y = 1.0 - position.y;
-    out.gl_Position = uNewTransform * float4(position, 0.0, 1.0);
+    out.gl_Position = _30.uNewTransform * float4(position, 0.0, 1.0);
+    out.gl_Position.y = -(out.gl_Position.y);    // Invert Y-axis for Metal
     return out;
 }
 

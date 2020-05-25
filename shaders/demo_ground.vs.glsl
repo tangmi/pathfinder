@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/resources/shaders/demo_ground.vs.glsl
 //
@@ -10,18 +10,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
+layout(set = 0, binding = 0) uniform Globals {
+    mat4 uTransform;
+    int uGridlineCount;
+};
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
+layout(location = 0) in ivec2 aPosition;
 
-uniform mat4 uTransform;
-uniform int uGridlineCount;
-
-in ivec2 aPosition;
-
-out vec2 vTexCoord;
+layout(location = 0) out vec2 vTexCoord;
 
 void main() {
     vTexCoord = vec2(aPosition * uGridlineCount);

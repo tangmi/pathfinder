@@ -1,4 +1,4 @@
-#version 330
+#version 450
 
 // pathfinder/shaders/fill.vs.glsl
 //
@@ -10,24 +10,21 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-precision highp float;
 
-#ifdef GL_ES
-precision highp sampler2D;
-#endif
+layout(set = 0, binding = 0) uniform Globals {
+    vec2 uFramebufferSize;
+    vec2 uTileSize;
+};
 
-uniform vec2 uFramebufferSize;
-uniform vec2 uTileSize;
+layout(location = 0) in uvec2 aTessCoord;
+layout(location = 1) in uint aFromPx;
+layout(location = 2) in uint aToPx;
+layout(location = 3) in vec2 aFromSubpx;
+layout(location = 4) in vec2 aToSubpx;
+layout(location = 5) in uint aTileIndex;
 
-in uvec2 aTessCoord;
-in uint aFromPx;
-in uint aToPx;
-in vec2 aFromSubpx;
-in vec2 aToSubpx;
-in uint aTileIndex;
-
-out vec2 vFrom;
-out vec2 vTo;
+layout(location = 0) out vec2 vFrom;
+layout(location = 1) out vec2 vTo;
 
 vec2 computeTileOffset(uint tileIndex, float stencilTextureWidth) {
     uint tilesPerRow = uint(stencilTextureWidth / uTileSize.x);

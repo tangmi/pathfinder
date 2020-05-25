@@ -1,0 +1,9 @@
+[package]
+name = "shaders"
+version = "0.1.0"
+authors = ["Michael Tang <tangmi@uw.edu>"]
+edition = "2018"
+
+[build-dependencies]
+shaderc = "0.6"
+spirv_cross = { version = "0.20", features = [ "glsl", "hlsl", "msl", ] }
