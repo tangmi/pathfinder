@@ -1,8 +1,9 @@
 use pathfinder_geometry::{rect::RectI, vector::Vector2I};
 use pathfinder_gpu::{
-    BlendFactor, BlendOp, BufferData, BufferTarget, BufferUploadMode, DepthFunc, Device,
-    RenderState, RenderTarget, ShaderKind, TextureData, TextureDataRef, TextureFormat,
-    TextureSamplingFlags, VertexAttrDescriptor,
+    BlendFactor, BlendOp, BufferData, BufferTarget, BufferUploadMode, ComputeDimensions,
+    ComputeState, DepthFunc, Device, FeatureLevel, Primitive, ProgramKind, RenderState,
+    RenderTarget, ShaderKind, StencilFunc, TextureData, TextureDataRef, TextureFormat,
+    TextureSamplingFlags, VertexAttrClass, VertexAttrDescriptor, VertexAttrType,
 };
 use pathfinder_resources::ResourceLoader;
 use std::cell::Cell;
@@ -295,15 +296,23 @@ fn texture_format_to_wgpu(format: TextureFormat) -> wgpu::TextureFormat {
 
 impl Device for WebGpuDevice {
     type Buffer = WebGpuBuffer;
+    type Fence = ();
     type Framebuffer = WebGpuFramebuffer;
+    type ImageParameter = ();
     type Program = WebGpuProgram;
     type Shader = WebGpuShader;
+    type StorageBuffer = ();
     type Texture = WebGpuTexture;
     type TextureDataReceiver = WebGpuTextureDataReceiver;
+    type TextureParameter = ();
     type TimerQuery = WebGpuTimerQuery;
     type Uniform = WebGpuUniform;
     type VertexArray = WebGpuVertexArray;
     type VertexAttr = WebGpuVertexAttr;
+
+    fn feature_level(&self) -> FeatureLevel {
+        FeatureLevel::D3D11
+    }
 
     fn create_texture(&self, format: TextureFormat, size: Vector2I) -> Self::Texture {
         WebGpuTexture {
@@ -347,6 +356,7 @@ impl Device for WebGpuDevice {
         let suffix = match kind {
             ShaderKind::Vertex => 'v',
             ShaderKind::Fragment => 'f',
+            ShaderKind::Compute => 'c',
         };
         let path = format!("shaders/spirv/{}.{}s.spv", name, suffix);
         self.create_shader_from_source(name, &resources.slurp(&path).unwrap(), kind)
@@ -430,19 +440,29 @@ impl Device for WebGpuDevice {
         &self,
         _resources: &dyn ResourceLoader,
         name: &str,
-        vertex_shader: Self::Shader,
-        fragment_shader: Self::Shader,
+        shaders: ProgramKind<Self::Shader>,
     ) -> Self::Program {
         // WebGPU's program is part of the render pipeline, which includes all GPU state, so we defer creating it until we know our state??
-        WebGpuProgram {
-            name: if cfg!(debug_assertions) {
-                Some(name.to_owned())
-            } else {
-                None
+        match shaders {
+            ProgramKind::Raster { vertex, fragment } => WebGpuProgram {
+                name: if cfg!(debug_assertions) {
+                    Some(name.to_owned())
+                } else {
+                    None
+                },
+                vertex_shader: vertex,
+                fragment_shader: fragment,
             },
-            vertex_shader,
-            fragment_shader,
+            ProgramKind::Compute(shader) => todo!(),
         }
+    }
+
+    fn set_compute_program_local_size(
+        &self,
+        program: &mut Self::Program,
+        local_size: ComputeDimensions,
+    ) {
+        todo!()
     }
 
     fn get_vertex_attr(&self, program: &Self::Program, name: &str) -> Option<Self::VertexAttr> {
@@ -464,6 +484,25 @@ impl Device for WebGpuDevice {
         WebGpuUniform {
             name: name.to_owned(),
         }
+    }
+
+    fn get_texture_parameter(&self, program: &Self::Program, name: &str) -> Self::TextureParameter {
+        dbg!(program);
+        dbg!(name);
+        todo!()
+    }
+
+    fn get_image_parameter(&self, program: &Self::Program, name: &str) -> Self::ImageParameter {
+        todo!()
+    }
+
+    fn get_storage_buffer(
+        &self,
+        program: &Self::Program,
+        name: &str,
+        binding: u32,
+    ) -> Self::StorageBuffer {
+        todo!()
     }
 
     fn bind_buffer(
@@ -509,9 +548,9 @@ impl Device for WebGpuDevice {
             .push(wgpu::VertexAttributeDescriptor {
                 offset: descriptor.offset as u64,
                 format: {
-                    use pathfinder_gpu::VertexAttrClass as Class;
-                    use pathfinder_gpu::VertexAttrType as Type;
                     use wgpu::VertexFormat as Format;
+                    use VertexAttrClass as Class;
+                    use VertexAttrType as Type;
 
                     // TODO waste the second half of unsupported attribute types? or just let them overlap and be unsafe in shaders?
                     match (descriptor.class, descriptor.attr_type, descriptor.size) {
@@ -565,19 +604,13 @@ impl Device for WebGpuDevice {
         WebGpuFramebuffer(texture)
     }
 
-    fn create_buffer(&self) -> Self::Buffer {
+    fn create_buffer(&self, mode: BufferUploadMode) -> Self::Buffer {
         WebGpuBuffer {
             inner: LazilyInitialized::uninitialized(),
         }
     }
 
-    fn allocate_buffer<T>(
-        &self,
-        buffer: &Self::Buffer,
-        data: BufferData<T>,
-        target: BufferTarget,
-        mode: BufferUploadMode,
-    ) {
+    fn allocate_buffer<T>(&self, buffer: &Self::Buffer, data: BufferData<T>, target: BufferTarget) {
         // assert_eq!(
         //     *buffer,
         //     WebGpuBuffer::Uninitialized,
@@ -650,6 +683,16 @@ impl Device for WebGpuDevice {
         //         size: new_len,
         //     };
         // }
+    }
+
+    fn upload_to_buffer<T>(
+        &self,
+        buffer: &Self::Buffer,
+        position: usize,
+        data: &[T],
+        target: BufferTarget,
+    ) {
+        todo!()
     }
 
     fn framebuffer_texture<'f>(&self, framebuffer: &'f Self::Framebuffer) -> &'f Self::Texture {
@@ -878,8 +921,8 @@ impl Device for WebGpuDevice {
                     depth_bias_clamp: 0.0,
                 }),
                 primitive_topology: match render_state.primitive {
-                    pathfinder_gpu::Primitive::Triangles => wgpu::PrimitiveTopology::TriangleList,
-                    pathfinder_gpu::Primitive::Lines => wgpu::PrimitiveTopology::LineList,
+                    Primitive::Triangles => wgpu::PrimitiveTopology::TriangleList,
+                    Primitive::Lines => wgpu::PrimitiveTopology::LineList,
                 },
                 color_states: &[wgpu::ColorStateDescriptor {
                     format: match render_state.target {
@@ -928,12 +971,8 @@ impl Device for WebGpuDevice {
                             .stencil
                             .map(|stencil_state| wgpu::StencilStateFaceDescriptor {
                                 compare: match stencil_state.func {
-                                    pathfinder_gpu::StencilFunc::Always => {
-                                        wgpu::CompareFunction::Always
-                                    }
-                                    pathfinder_gpu::StencilFunc::Equal => {
-                                        wgpu::CompareFunction::Equal
-                                    }
+                                    StencilFunc::Always => wgpu::CompareFunction::Always,
+                                    StencilFunc::Equal => wgpu::CompareFunction::Equal,
                                 },
                                 fail_op: wgpu::StencilOperation::Keep,
                                 depth_fail_op: wgpu::StencilOperation::Keep,
@@ -1052,6 +1091,18 @@ impl Device for WebGpuDevice {
 
         render_pass.set_index_buffer(&index_buffer.buffer, 0, index_buffer.size as u64);
         render_pass.draw_indexed(0..index_count, 0, 0..instance_count);
+    }
+
+    fn dispatch_compute(&self, dimensions: ComputeDimensions, state: &ComputeState<Self>) {
+        todo!()
+    }
+
+    fn add_fence(&self) -> Self::Fence {
+        todo!()
+    }
+
+    fn wait_for_fence(&self, fence: &Self::Fence) {
+        todo!()
     }
 
     fn create_timer_query(&self) -> Self::TimerQuery {
